@@ -51,6 +51,10 @@ export default function Index() {
 
   // Track pending saves to ensure they complete before page unload
   const pendingSavesRef = useRef<Promise<void>[]>([]);
+  // Ensure we don't sync to Supabase until we've loaded data from Supabase
+  // for the current user. This prevents an initial empty local state from
+  // deleting the user's existing records in Supabase.
+  const loadedFromSupabaseRef = useRef(false);
 
   // Check session and load data from Supabase
   useEffect(() => {
@@ -77,16 +81,19 @@ export default function Index() {
 
           if (data?.session) {
             // User is authenticated - try Supabase first, fall back to localStorage if it fails
+            // Reset loaded flag until the load completes successfully
+            loadedFromSupabaseRef.current = false;
             await loadDataFromSupabase(data.session.user.id);
           } else {
             // User is not authenticated - load from localStorage only
+            loadedFromSupabaseRef.current = false;
             loadDataFromLocalStorage();
           }
         }
       } catch (error) {
         console.error("Failed to load session:", error);
         // Fallback to localStorage on error
-        if (mounted) {
+  if (mounted) {
           loadDataFromLocalStorage();
         }
       } finally {
@@ -108,6 +115,8 @@ export default function Index() {
           // User just signed in - show loading while we fetch their data
           setLoading(true);
           setSession(newSession);
+          // Mark that we haven't yet loaded this user's data from Supabase
+          loadedFromSupabaseRef.current = false;
           setLastLoadedUserId(newSession.user.id);
           await loadDataFromSupabase(newSession.user.id);
           // Data is now loaded from Supabase and saved to localStorage
@@ -120,6 +129,8 @@ export default function Index() {
           setBudgets([]);
           setRecurring([]);
           setLastLoadedUserId(null);
+          // No longer loaded for any user
+          loadedFromSupabaseRef.current = false;
           localStorage.removeItem(STORAGE_KEY);
           localStorage.removeItem(BUDGET_STORAGE_KEY);
           localStorage.removeItem(RECURRING_STORAGE_KEY);
@@ -221,12 +232,17 @@ export default function Index() {
         setRecurring(rtData);
         localStorage.setItem(RECURRING_STORAGE_KEY, JSON.stringify(rtData));
       }
+      // Mark that we've successfully loaded this user's data from Supabase.
+      loadedFromSupabaseRef.current = true;
+      setLastLoadedUserId(userId);
     } catch (error) {
       console.error("Failed to load data from Supabase:", error);
       // On error, try to load from localStorage as fallback
       // This ensures user sees their data even if Supabase is down temporarily
       console.warn("Supabase load failed, using localStorage backup");
       loadDataFromLocalStorage();
+      // Did not load from Supabase
+      loadedFromSupabaseRef.current = false;
     } finally {
       setSyncing(false);
     }
@@ -264,7 +280,9 @@ export default function Index() {
     // ALWAYS save to localStorage immediately as emergency backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
 
-    if (!session) {
+    if (!session || !loadedFromSupabaseRef.current) {
+      // If there's no session or we haven't loaded this user's data from
+      // Supabase yet, skip syncing to avoid accidental remote deletes.
       return;
     }
 
@@ -340,7 +358,7 @@ export default function Index() {
     // ALWAYS save to localStorage immediately as emergency backup
     localStorage.setItem(BUDGET_STORAGE_KEY, JSON.stringify(budgets));
 
-    if (!session) {
+    if (!session || !loadedFromSupabaseRef.current) {
       return;
     }
 
@@ -413,7 +431,7 @@ export default function Index() {
     // ALWAYS save to localStorage immediately as emergency backup
     localStorage.setItem(RECURRING_STORAGE_KEY, JSON.stringify(recurring));
 
-    if (!session) {
+    if (!session || !loadedFromSupabaseRef.current) {
       return;
     }
 
