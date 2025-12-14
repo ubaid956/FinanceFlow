@@ -1,4 +1,5 @@
 import { DollarSign } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { Transaction, AccountType } from "@shared/api";
 
 interface AccountBalancesProps {
@@ -42,7 +43,7 @@ export default function AccountBalances({ transactions }: AccountBalancesProps) 
                   {account.label}
                 </span>
                 <span className={`text-lg font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {balance >= 0 ? "+" : "-"}${Math.abs(balance).toFixed(2)}
+                  {balance >= 0 ? "+" : "-"}${formatNumber(Math.abs(balance), 2)}
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
@@ -59,7 +60,7 @@ export default function AccountBalances({ transactions }: AccountBalancesProps) 
           <div className="flex items-center justify-between">
             <span className="font-semibold text-gray-900">Total Balance</span>
             <span className={`text-xl font-bold ${totalBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {totalBalance >= 0 ? "+" : "-"}${Math.abs(totalBalance).toFixed(2)}
+              {totalBalance >= 0 ? "+" : "-"}${formatNumber(Math.abs(totalBalance), 2)}
             </span>
           </div>
         </div>

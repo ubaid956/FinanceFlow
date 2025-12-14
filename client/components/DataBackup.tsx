@@ -1,4 +1,5 @@
 import { Download, Archive, File } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { Transaction } from "@shared/api";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -123,7 +124,7 @@ export default function DataBackup({ transactions }: DataBackupProps) {
       t.category,
       t.account.charAt(0).toUpperCase() + t.account.slice(1),
       t.type === "income" ? "Income" : "Expense",
-      `$${t.amount.toFixed(2)}`,
+      `$${formatNumber(t.amount, 2)}`,
       t.tags?.join(";") || "",
     ]);
 

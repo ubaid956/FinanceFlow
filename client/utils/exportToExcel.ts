@@ -1,4 +1,5 @@
 import { Transaction } from "@shared/api";
+import { formatNumber } from "@/lib/format";
 import * as XLSX from "xlsx";
 
 export function exportToCSV(transactions: Transaction[], filename: string = "transactions.xlsx") {
@@ -101,13 +102,13 @@ export function exportToGoogleSheets(
   // Create TSV format for Google Sheets
   const headers = ["Date", "Description", "Category", "Account", "Type", "Amount"];
 
-  const rows = transactions.map((t) => [
+    const rows = transactions.map((t) => [
     new Date(t.date).toLocaleDateString("en-US"),
     t.description || "",
     t.category,
     t.account.charAt(0).toUpperCase() + t.account.slice(1),
     t.type === "income" ? "Income" : "Expense",
-    t.amount.toFixed(2),
+      formatNumber(t.amount, 2),
   ]);
 
   // Create TSV content

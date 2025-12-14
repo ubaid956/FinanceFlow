@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { useState } from "react";
 import { Transaction, BudgetGoal } from "@shared/api";
 
@@ -161,7 +162,7 @@ export default function BudgetGoals({
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className={isOver ? "text-red-600 font-semibold" : "text-gray-600"}>
-                    ${spent.toFixed(2)} / ${budget.monthlyLimit.toFixed(2)}
+                    ${formatNumber(spent, 2)} / ${formatNumber(budget.monthlyLimit, 2)}
                   </span>
                   <span className="text-xs text-gray-500">{percentage.toFixed(0)}%</span>
                 </div>

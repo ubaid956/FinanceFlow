@@ -1,5 +1,6 @@
 import { Trash2, CheckSquare, Square } from "lucide-react";
 import { Transaction } from "@shared/api";
+import { formatNumber } from "@/lib/format";
 
 const formatDateString = (dateString: string): string => {
   // Parse date string (YYYY-MM-DD) without timezone conversion
@@ -112,7 +113,7 @@ export default function BulkTransactionActions({
                   }`}
                 >
                   {transaction.type === "income" ? "+" : "-"}$
-                  {transaction.amount.toFixed(2)}
+                  {formatNumber(transaction.amount, 2)}
                 </span>
               </div>
               <p className="text-sm text-gray-500">

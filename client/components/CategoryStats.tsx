@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { Transaction, TransactionType } from "@shared/api";
 
 interface CategoryStatsProps {
@@ -86,12 +87,12 @@ export default function CategoryStats({
               </div>
             </div>
             <div className="text-right min-w-24">
-              <p
+                <p
                 className={`text-sm font-bold ${
                   type === "income" ? "text-green-600" : "text-red-600"
                 }`}
               >
-                ${stat.total.toFixed(2)}
+                ${formatNumber(stat.total, 2)}
               </p>
               <p className="text-xs text-gray-500">{stat.count} items</p>
             </div>

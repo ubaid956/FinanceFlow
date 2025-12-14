@@ -219,8 +219,8 @@ export default function YearOverview({
                     Income
                   </span>
                   <span className="font-semibold text-green-600">
-                    ${stat.income.toFixed(2)}
-                  </span>
+                      ${formatNumber(stat.income, 2)}
+                    </span>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -228,8 +228,8 @@ export default function YearOverview({
                     <TrendingDown className="w-4 h-4 text-red-600" />
                     Expense
                   </span>
-                  <span className="font-semibold text-red-600">
-                    ${stat.expense.toFixed(2)}
+                    <span className="font-semibold text-red-600">
+                    ${formatNumber(stat.expense, 2)}
                   </span>
                 </div>
 
@@ -243,7 +243,7 @@ export default function YearOverview({
                       stat.net >= 0 ? "text-emerald-600" : "text-red-600"
                     }`}
                   >
-                    {stat.net >= 0 ? "+" : "-"}${Math.abs(stat.net).toFixed(2)}
+                    {stat.net >= 0 ? "+" : "-"}${formatNumber(Math.abs(stat.net), 2)}
                   </span>
                 </div>
 
@@ -280,7 +280,7 @@ export default function YearOverview({
                     {topIncomeCategory[0]}
                   </p>
                   <p className="text-sm text-green-600 mt-0.5">
-                    ${topIncomeCategory[1].income.toFixed(2)}
+                    ${formatNumber(topIncomeCategory[1].income, 2)}
                   </p>
                 </div>
               )}
@@ -309,7 +309,7 @@ export default function YearOverview({
                       </div>
                     </div>
                     <span className="text-sm font-bold text-green-600 ml-3 whitespace-nowrap">
-                      ${stats.income.toFixed(2)}
+                      ${formatNumber(stats.income, 2)}
                     </span>
                   </div>
                 ))}
@@ -339,8 +339,8 @@ export default function YearOverview({
                   <p className="text-lg font-bold text-red-700 mt-1">
                     {topExpenseCategory[0]}
                   </p>
-                  <p className="text-sm text-red-600 mt-0.5">
-                    ${topExpenseCategory[1].expense.toFixed(2)}
+                    <p className="text-sm text-red-600 mt-0.5">
+                    ${formatNumber(topExpenseCategory[1].expense, 2)}
                   </p>
                 </div>
               )}
@@ -369,7 +369,7 @@ export default function YearOverview({
                       </div>
                     </div>
                     <span className="text-sm font-bold text-red-600 ml-3 whitespace-nowrap">
-                      ${stats.expense.toFixed(2)}
+                      ${formatNumber(stats.expense, 2)}
                     </span>
                   </div>
                 ))}

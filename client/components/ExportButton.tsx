@@ -1,4 +1,5 @@
 import { Download, FileText, File } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { useState } from "react";
 import { Transaction } from "@shared/api";
 import { exportToCSV, exportToGoogleSheets } from "@/utils/exportToExcel";
@@ -47,7 +48,7 @@ export default function ExportButton({ transactions, filename }: ExportButtonPro
       t.category,
       t.account.charAt(0).toUpperCase() + t.account.slice(1),
       t.type === "income" ? "Income" : "Expense",
-      `$${t.amount.toFixed(2)}`,
+      `$${formatNumber(t.amount, 2)}`,
     ]);
 
     const totalIncome = transactions
@@ -191,15 +192,15 @@ export default function ExportButton({ transactions, filename }: ExportButtonPro
           <h3>Summary</h3>
           <div class="summary-row">
             <span class="summary-label">Total Income:</span>
-            <span class="income">$${totalIncome.toFixed(2)}</span>
+            <span class="income">$${formatNumber(totalIncome, 2)}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Total Expense:</span>
-            <span class="expense">$${totalExpense.toFixed(2)}</span>
+            <span class="expense">$${formatNumber(totalExpense, 2)}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Net Total:</span>
-            <span style="color: ${totalIncome - totalExpense >= 0 ? "#059669" : "#DC2626"};">$${(totalIncome - totalExpense).toFixed(2)}</span>
+            <span style="color: ${totalIncome - totalExpense >= 0 ? "#059669" : "#DC2626"};">$${formatNumber(totalIncome - totalExpense, 2)}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Total Transactions:</span>
