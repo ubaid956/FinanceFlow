@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown, Wallet, Calendar, Download } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Transaction } from "@shared/api";
 import { exportAnnualReport } from "@/utils/exportToExcel";
@@ -156,14 +157,14 @@ export default function YearOverview({
           <div className="p-4 bg-green-50 rounded-lg border border-green-200">
             <p className="text-green-600 text-sm font-semibold">Total Income</p>
             <p className="text-2xl font-bold text-green-700 mt-1">
-              ${yearTotal.income.toFixed(2)}
+              ${formatNumber(yearTotal.income, 2)}
             </p>
           </div>
 
           <div className="p-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-red-600 text-sm font-semibold">Total Expense</p>
             <p className="text-2xl font-bold text-red-700 mt-1">
-              ${yearTotal.expense.toFixed(2)}
+              ${formatNumber(yearTotal.expense, 2)}
             </p>
           </div>
 
@@ -186,7 +187,7 @@ export default function YearOverview({
                 yearTotal.net >= 0 ? "text-emerald-700" : "text-red-700"
               }`}
             >
-              {yearTotal.net >= 0 ? "+" : "-"}${Math.abs(yearTotal.net).toFixed(2)}
+              {yearTotal.net >= 0 ? "+" : "-"}${formatNumber(Math.abs(yearTotal.net), 2)}
             </p>
           </div>
 

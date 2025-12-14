@@ -48,6 +48,7 @@ export default function Index() {
   const [syncing, setSyncing] = useState(false);
   const [storageFull, setStorageFull] = useState(false);
   const [lastLoadedUserId, setLastLoadedUserId] = useState<string | null>(null);
+  const bcRef = useRef<BroadcastChannel | null>(null);
 
   // Track pending saves to ensure they complete before page unload
   const pendingSavesRef = useRef<Promise<void>[]>([]);
@@ -58,6 +59,12 @@ export default function Index() {
 
   // Check session and load data from Supabase
   useEffect(() => {
+    try {
+      bcRef.current = new BroadcastChannel("financeflow-storage");
+    } catch (err) {
+      bcRef.current = null;
+    }
+
     let mounted = true;
     const getSession = async () => {
       try {
@@ -145,6 +152,10 @@ export default function Index() {
     return () => {
       mounted = false;
       authListener?.subscription.unsubscribe();
+      if (bcRef.current) {
+        try { bcRef.current.close(); } catch (e) {}
+        bcRef.current = null;
+      }
     };
   }, []);
 
@@ -235,6 +246,8 @@ export default function Index() {
       // Mark that we've successfully loaded this user's data from Supabase.
       loadedFromSupabaseRef.current = true;
       setLastLoadedUserId(userId);
+  // notify other tabs
+  try { bcRef.current?.postMessage({ type: "update" }); } catch (e) {}
     } catch (error) {
       console.error("Failed to load data from Supabase:", error);
       // On error, try to load from localStorage as fallback
@@ -507,11 +520,49 @@ export default function Index() {
       id: uuidv4(),
     };
     setTransactions([transaction, ...transactions]);
+    // notify other tabs immediately and persist localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([transaction, ...transactions]));
+    } catch (e) {}
+    try { bcRef.current?.postMessage({ type: "update" }); } catch (e) {}
   };
 
-  // Delete transaction
-  const handleDeleteTransaction = (id: string) => {
-    setTransactions(transactions.filter((t) => t.id !== id));
+  // Delete transaction: do NOT remove locally until Supabase confirms deletion
+  // This ensures the TransactionsTable can show a spinner in-place while the
+  // backend operation completes.
+  const handleDeleteTransaction = async (id: string): Promise<void> => {
+    const toRemove = transactions.find((t) => t.id === id) || null;
+
+    if (!session) {
+      // No session - local-only deletion; remove immediately
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", session.user.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // On success, remove from local state and update localStorage immediately
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+      try {
+        const updated = transactions.filter((t) => t.id !== id);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        // ignore localStorage errors
+      }
+      try { bcRef.current?.postMessage({ type: "update" }); } catch (e) {}
+    } catch (err) {
+      // Let caller (TransactionsTable) show toast; do not modify local state
+      throw err;
+    }
   };
 
   // Update transaction
@@ -528,9 +579,26 @@ export default function Index() {
     setBudgets([...budgets, budget]);
   };
 
-  // Delete budget
-  const handleDeleteBudget = (id: string) => {
-    setBudgets(budgets.filter((b) => b.id !== id));
+  // Delete budget: wait for Supabase confirmation before removing locally
+  const handleDeleteBudget = async (id: string): Promise<void> => {
+    if (!session) {
+      setBudgets((prev) => prev.filter((b) => b.id !== id));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("budgets")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", session.user.id);
+
+      if (error) throw error;
+
+      setBudgets((prev) => prev.filter((b) => b.id !== id));
+    } catch (err) {
+      throw err;
+    }
   };
 
   // Add recurring
@@ -538,9 +606,26 @@ export default function Index() {
     setRecurring([...recurring, trans]);
   };
 
-  // Delete recurring
-  const handleDeleteRecurring = (id: string) => {
-    setRecurring(recurring.filter((t) => t.id !== id));
+  // Delete recurring: wait for Supabase confirmation before removing locally
+  const handleDeleteRecurring = async (id: string): Promise<void> => {
+    if (!session) {
+      setRecurring((prev) => prev.filter((r) => r.id !== id));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("recurring_transactions")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", session.user.id);
+
+      if (error) throw error;
+
+      setRecurring((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      throw err;
+    }
   };
 
   // Get all unique categories from transactions

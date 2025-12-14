@@ -147,17 +147,20 @@ export function exportAnnualReport(
     return parseInt(dateYear) === year;
   });
 
-  const yearTotal = {
-    income: yearTransactions
-      .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0),
-    expense: yearTransactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0),
-    count: yearTransactions.length,
-  };
+  const yearIncome = yearTransactions
+    .filter((t) => t.type === "income")
+    .reduce((sum, t) => sum + t.amount, 0);
 
-  yearTotal.net = yearTotal.income - yearTotal.expense;
+  const yearExpense = yearTransactions
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const yearTotal = {
+    income: yearIncome,
+    expense: yearExpense,
+    count: yearTransactions.length,
+    net: yearIncome - yearExpense,
+  };
 
   // Calculate monthly breakdown
   const monthlyStats = MONTHS.map((_, monthIndex) => {

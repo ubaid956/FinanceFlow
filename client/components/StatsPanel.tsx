@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { formatNumber } from "@/lib/format";
 
 interface StatsPanelProps {
   totalIncome: number;
@@ -19,7 +20,7 @@ export default function StatsPanel({
           <div className="min-w-0">
             <p className="text-gray-600 text-xs sm:text-sm font-semibold">Total Income</p>
             <p className="text-xl sm:text-2xl font-bold text-green-600 mt-2 truncate">
-              ${totalIncome.toFixed(2)}
+              ${formatNumber(totalIncome, 2)}
             </p>
           </div>
           <div className="p-2 sm:p-3 bg-green-100 rounded-lg flex-shrink-0">
@@ -33,7 +34,7 @@ export default function StatsPanel({
           <div className="min-w-0">
             <p className="text-gray-600 text-xs sm:text-sm font-semibold">Total Expense</p>
             <p className="text-xl sm:text-2xl font-bold text-red-600 mt-2 truncate">
-              ${totalExpense.toFixed(2)}
+              ${formatNumber(totalExpense, 2)}
             </p>
           </div>
           <div className="p-2 sm:p-3 bg-red-100 rounded-lg flex-shrink-0">
@@ -55,7 +56,7 @@ export default function StatsPanel({
                 isPositive ? "text-emerald-600" : "text-orange-600"
               }`}
             >
-              {isPositive ? "+" : "-"}${Math.abs(net).toFixed(2)}
+              {isPositive ? "+" : "-"}${formatNumber(Math.abs(net), 2)}
             </p>
           </div>
           <div

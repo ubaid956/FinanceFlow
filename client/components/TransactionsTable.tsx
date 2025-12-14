@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Trash2, Edit2, Save, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Trash2, Edit2, Save, X, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 import { Transaction, TransactionType, AccountType } from "@shared/api";
+import { useToast } from "@/hooks/use-toast";
+import { formatNumber, formatInputValue, parseFormattedNumber } from "@/lib/format";
 
 interface TransactionsTableProps {
   transactions: Transaction[];
-  onDelete: (id: string) => void;
+  // onDelete may perform an async call to Supabase; we accept a promise or void
+  onDelete: (id: string) => Promise<void> | void;
   onUpdate: (transaction: Transaction) => void;
 }
 
@@ -46,10 +49,12 @@ export default function TransactionsTable({
   onDelete,
   onUpdate,
 }: TransactionsTableProps) {
+  const { toast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Transaction | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -261,12 +266,12 @@ export default function TransactionsTable({
                   </td>
                   <td className="px-6 py-4">
                     <input
-                      type="number"
-                      step="0.01"
-                      value={editFormData.amount}
-                      onChange={(e) =>
-                        handleFieldChange("amount", parseFloat(e.target.value))
-                      }
+                      type="text"
+                      value={formatInputValue(String(editFormData.amount))}
+                      onChange={(e) => {
+                        const parsed = parseFormattedNumber(e.target.value);
+                        handleFieldChange("amount", Number.isNaN(parsed) ? 0 : parsed);
+                      }}
                       className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </td>
@@ -339,24 +344,65 @@ export default function TransactionsTable({
                       }`}
                     >
                       {transaction.type === "income" ? "+" : "-"}$
-                      {transaction.amount.toFixed(2)}
+                      {formatNumber(transaction.amount, 2)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="flex gap-2 justify-center">
                       <button
                         onClick={() => handleEditStart(transaction)}
-                        className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit transaction"
+                        className={`p-1.5 rounded-lg transition-colors ${deletingIds.includes(transaction.id) ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-50"}`}
+                        title={deletingIds.includes(transaction.id) ? "Deleting..." : "Edit transaction"}
+                        aria-disabled={deletingIds.includes(transaction.id)}
+                        disabled={deletingIds.includes(transaction.id)}
                       >
                         <Edit2 className="w-4 h-4 text-blue-600" />
                       </button>
                       <button
-                        onClick={() => onDelete(transaction.id)}
-                        className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete transaction"
+                        onClick={async () => {
+                          // mark as deleting immediately so UI shows activity indicator
+                          setDeletingIds((ids) => [...ids, transaction.id]);
+                          try {
+                            const result = onDelete(transaction.id);
+                            if (result && typeof (result as Promise<void>).then === "function") {
+                              await (result as Promise<void>);
+                            }
+
+                            // Success
+                            try {
+                              toast({
+                                title: "Deleted",
+                                description: "Transaction deleted successfully",
+                              });
+                            } catch (tErr) {
+                              // ignore toast errors
+                            }
+                          } catch (e) {
+                            // Show toast so user knows delete failed
+                            console.error("Delete failed", e);
+                            try {
+                              toast({
+                                title: "Delete failed",
+                                description: (e as any)?.message || "Unable to delete transaction. It will be restored.",
+                                variant: "destructive",
+                              });
+                            } catch (tErr) {
+                              // ignore toast errors
+                            }
+                          } finally {
+                            setDeletingIds((ids) => ids.filter((i) => i !== transaction.id));
+                          }
+                        }}
+                        className={`p-1.5 rounded-lg transition-colors ${deletingIds.includes(transaction.id) ? "bg-red-50" : "hover:bg-red-50"}`}
+                        title={deletingIds.includes(transaction.id) ? "Deleting..." : "Delete transaction"}
+                        aria-busy={deletingIds.includes(transaction.id)}
+                        disabled={deletingIds.includes(transaction.id)}
                       >
-                        <Trash2 className="w-4 h-4 text-red-600 hover:text-red-700" />
+                        {deletingIds.includes(transaction.id) ? (
+                          <Loader2 className="w-4 h-4 text-red-600 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 text-red-600 hover:text-red-700" />
+                        )}
                       </button>
                     </div>
                   </td>

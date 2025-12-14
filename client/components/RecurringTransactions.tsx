@@ -1,5 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { formatInputValue, parseFormattedNumber, formatNumber } from "@/lib/format";
 import { RecurringTransaction, AccountType, TransactionType } from "@shared/api";
 
 interface RecurringTransactionsProps {
@@ -37,7 +38,7 @@ export default function RecurringTransactions({
     onAdd({
       id: Date.now().toString(),
       date: formData.date,
-      amount: parseFloat(formData.amount),
+      amount: parseFormattedNumber(formData.amount),
       category: formData.category,
       description: formData.description,
       frequency: formData.frequency as "daily" | "weekly" | "monthly" | "yearly",
@@ -98,10 +99,9 @@ export default function RecurringTransactions({
             </select>
 
             <input
-              type="number"
-              step="0.01"
+              type="text"
               value={formData.amount}
-              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, amount: formatInputValue(e.target.value) })}
               placeholder="Amount"
               className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
             />
@@ -188,7 +188,7 @@ export default function RecurringTransactions({
                 <p className="font-semibold text-gray-900">{trans.category}</p>
                 <p className="text-sm text-gray-600">{trans.description || "No description"}</p>
                 <p className="text-xs text-gray-500">
-                  {trans.frequency.charAt(0).toUpperCase() + trans.frequency.slice(1)} • ${trans.amount.toFixed(2)}
+                  {trans.frequency.charAt(0).toUpperCase() + trans.frequency.slice(1)} • ${formatNumber(trans.amount, 2)}
                 </p>
               </div>
               <button

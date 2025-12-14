@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { HardDrive } from "lucide-react";
 
 interface StorageBarProps {
@@ -13,10 +13,15 @@ const STORAGE_WARNING_THRESHOLD = 0.9; // 90%
 export default function StorageBar({ transactions, budgets, recurring }: StorageBarProps) {
   const [showDetails, setShowDetails] = useState(false);
 
-  const storageInfo = useMemo(() => {
-    const transactionsSize = JSON.stringify(transactions).length;
-    const budgetsSize = JSON.stringify(budgets).length;
-    const recurringSize = JSON.stringify(recurring).length;
+  // Keys used by the app for local backup
+  const STORAGE_KEY = "financeflow_transactions";
+  const BUDGET_STORAGE_KEY = "financeflow_budgets";
+  const RECURRING_STORAGE_KEY = "financeflow_recurring";
+
+  const computeSizesFrom = useCallback((txs: any[], bgs: any[], rcs: any[]) => {
+    const transactionsSize = JSON.stringify(txs).length;
+    const budgetsSize = JSON.stringify(bgs).length;
+    const recurringSize = JSON.stringify(rcs).length;
     const totalSize = transactionsSize + budgetsSize + recurringSize;
 
     const percentageUsed = (totalSize / STORAGE_LIMIT_BYTES) * 100;
@@ -31,7 +36,73 @@ export default function StorageBar({ transactions, budgets, recurring }: Storage
       isWarning,
       remainingBytes: STORAGE_LIMIT_BYTES - totalSize,
     };
-  }, [transactions, budgets, recurring]);
+  }, []);
+
+  const [storageInfo, setStorageInfo] = useState(() => computeSizesFrom(transactions, budgets, recurring));
+
+  // Recompute whenever parent state changes
+  useEffect(() => {
+    setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
+  }, [transactions, budgets, recurring, computeSizesFrom]);
+
+  // Recompute from localStorage when other tabs update storage
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key) {
+        // some browsers send key=null for clear(); recalc everything
+        const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
+        const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
+        setStorageInfo(computeSizesFrom(tx, bg, rc));
+        return;
+      }
+
+      if ([STORAGE_KEY, BUDGET_STORAGE_KEY, RECURRING_STORAGE_KEY].includes(e.key)) {
+        try {
+          const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+          const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
+          const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
+          setStorageInfo(computeSizesFrom(tx, bg, rc));
+        } catch (err) {
+          // fallback to using props
+          setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [computeSizesFrom, transactions, budgets, recurring]);
+
+  // Listen for BroadcastChannel messages for faster cross-tab updates
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("financeflow-storage");
+    } catch (err) {
+      bc = null;
+    }
+
+    const onMessage = () => {
+      try {
+        const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
+        const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
+        setStorageInfo(computeSizesFrom(tx, bg, rc));
+      } catch (err) {
+        setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
+      }
+    };
+
+    if (bc) {
+      bc.addEventListener("message", onMessage);
+    }
+
+    return () => {
+      if (bc) bc.removeEventListener("message", onMessage);
+      if (bc) bc.close();
+    };
+  }, [computeSizesFrom, transactions, budgets, recurring]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
@@ -57,7 +128,7 @@ export default function StorageBar({ transactions, budgets, recurring }: Storage
           <HardDrive className="w-4 h-4 text-gray-600" />
           <div className="flex flex-col gap-1">
             <div className="text-xs font-semibold text-gray-700">
-              Storage: {storageInfo.percentageUsed.toFixed(0)}%
+              Storage: {storageInfo.percentageUsed.toFixed(1)}% • {formatBytes(storageInfo.totalSize)}
             </div>
             <div className="w-32 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div

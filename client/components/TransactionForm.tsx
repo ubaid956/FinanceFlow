@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
 import { Transaction, TransactionType, AccountType } from "@shared/api";
 import { useToast } from "@/hooks/use-toast";
+import { formatInputValue, parseFormattedNumber } from "@/lib/format";
 
 interface TransactionFormProps {
   onAddTransaction: (transaction: Omit<Transaction, "id">) => void;
@@ -95,7 +96,7 @@ export default function TransactionForm({
     onAddTransaction({
       date,
       type,
-      amount: parseFloat(amount),
+      amount: parseFormattedNumber(amount),
       account,
       category: finalCategory,
       description,
@@ -103,7 +104,7 @@ export default function TransactionForm({
 
     toast({
       title: "Transaction Added",
-      description: `${type === "income" ? "Income" : "Expense"} of $${parseFloat(amount).toFixed(2)} recorded successfully`,
+      description: `${type === "income" ? "Income" : "Expense"} of $${parseFormattedNumber(amount).toFixed(2)} recorded successfully`,
     });
 
     setDate(getDefaultDate());
@@ -188,10 +189,9 @@ export default function TransactionForm({
               Amount
             </label>
             <input
-              type="number"
-              step="0.01"
+              type="text"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => setAmount(formatInputValue(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="0.00"
               required
