@@ -2,7 +2,11 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Chrome, Mail } from "lucide-react";
 
-export default function Auth() {
+type Props = {
+  onSignIn?: (userId?: string) => void;
+};
+
+export default function Auth({ onSignIn }: Props) {
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [email, setEmail] = useState("");
@@ -14,6 +18,8 @@ export default function Auth() {
     try {
       setLoading(true);
       setError("");
+
+      console.log("API: login attempt - google");
 
       // Store remember me preference
       if (rememberMe) {
@@ -28,7 +34,11 @@ export default function Auth() {
           redirectTo: `${window.location.origin}`,
         },
       });
+      console.log("API: login attempt - google result", { error: error || null });
       if (error) throw error;
+      // Attempt to notify parent that sign-in completed. For redirect flows
+      // the page may reload and the auth listener will handle the rest.
+      try { onSignIn?.(); } catch (e) {}
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed");
     } finally {
@@ -54,16 +64,34 @@ export default function Auth() {
       }
 
       if (authMode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({
+        console.log("API: login attempt - email", { email });
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
+        console.log("API: login attempt - email result", { data, error: error || null });
         if (error) throw error;
+        // CRITICAL: Notify parent that sign-in completed so Index can eagerly reload data
+        // Pass the user id when available to avoid session persistence races
+        // The session is automatically stored in localStorage by Supabase, so Index can read it
+        try { 
+          if (data?.session) {
+            // Session is already stored in localStorage by Supabase
+            // Just pass the userId - Index will read session from localStorage or getSession()
+            onSignIn?.(data.session.user?.id); 
+          } else {
+            onSignIn?.();
+          }
+        } catch (e) {
+          console.warn("API: Auth - onSignIn callback failed", e);
+        }
       } else {
-        const { error } = await supabase.auth.signUp({
+        console.log("API: signup attempt - email", { email });
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
         });
+        console.log("API: signup attempt - email result", { data, error: error || null });
         if (error) throw error;
         setError("Signup successful! Please check your email to verify your account.");
       }

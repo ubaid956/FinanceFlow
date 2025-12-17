@@ -48,26 +48,9 @@ export default function StorageBar({ transactions, budgets, recurring }: Storage
   // Recompute from localStorage when other tabs update storage
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (!e.key) {
-        // some browsers send key=null for clear(); recalc everything
-        const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-        const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
-        const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
-        setStorageInfo(computeSizesFrom(tx, bg, rc));
-        return;
-      }
-
-      if ([STORAGE_KEY, BUDGET_STORAGE_KEY, RECURRING_STORAGE_KEY].includes(e.key)) {
-        try {
-          const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-          const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
-          const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
-          setStorageInfo(computeSizesFrom(tx, bg, rc));
-        } catch (err) {
-          // fallback to using props
-          setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
-        }
-      }
+      // Don't read from localStorage — prefer props (server state) as source of truth.
+      // Some browsers send key=null for clear(); recalc everything from props.
+      setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
     };
 
     window.addEventListener("storage", handleStorage);
@@ -84,14 +67,8 @@ export default function StorageBar({ transactions, budgets, recurring }: Storage
     }
 
     const onMessage = () => {
-      try {
-        const tx = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-        const bg = JSON.parse(localStorage.getItem(BUDGET_STORAGE_KEY) || "[]");
-        const rc = JSON.parse(localStorage.getItem(RECURRING_STORAGE_KEY) || "[]");
-        setStorageInfo(computeSizesFrom(tx, bg, rc));
-      } catch (err) {
-        setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
-      }
+      // Prefer props as source of truth; recompute from props when a broadcast message arrives
+      setStorageInfo(computeSizesFrom(transactions, budgets, recurring));
     };
 
     if (bc) {

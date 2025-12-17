@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Loader2 } from "lucide-react";
 import { Transaction, TransactionType, AccountType } from "@shared/api";
 import { useToast } from "@/hooks/use-toast";
 import { formatInputValue, parseFormattedNumber, formatNumber } from "@/lib/format";
 
 interface TransactionFormProps {
-  onAddTransaction: (transaction: Omit<Transaction, "id">) => void;
+  onAddTransaction: (transaction: Omit<Transaction, "id">) => Promise<void> | void;
   categories: string[];
   currentMonth: number;
   currentYear: number;
@@ -37,6 +37,7 @@ export default function TransactionForm({
 }: TransactionFormProps) {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Generate default date based on currently selected month/year (first day of month)
   const getDefaultDate = () => {
@@ -58,11 +59,33 @@ export default function TransactionForm({
     setDate(getDefaultDate());
   }, [currentMonth, currentYear]);
 
+  // Track submission start time to detect stuck submissions after tab switching
+  const submissionStartRef = useRef<number | null>(null);
+
+  // Safety: if the tab was hidden and the submit got stuck, clear submitting when visibility changes
+  // Increased timeout to 30 seconds - simple timeout like axios would have
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && submitting) {
+        // If we've been submitting for more than 30 seconds, likely stuck
+        const now = Date.now();
+        if (submissionStartRef.current && now - submissionStartRef.current > 30000) {
+          console.warn("Detected stuck submission after tab switch (30s timeout), clearing state");
+          setSubmitting(false);
+          submissionStartRef.current = null;
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [submitting]);
+
   const allCategories = [
     ...new Set([...DEFAULT_CATEGORIES, ...categories]),
   ].sort();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!amount) {
@@ -93,28 +116,61 @@ export default function TransactionForm({
       return;
     }
 
-    onAddTransaction({
-      date,
-      type,
-      amount: parseFormattedNumber(amount),
-      account,
-      category: finalCategory,
-      description,
-    });
+    // No need to block submission if tab is not visible
+    // The handleAddTransaction function will wait for tab to become visible automatically
+    // This matches the behavior of axios - it just works
 
-    toast({
-      title: "Transaction Added",
-      description: `${type === "income" ? "Income" : "Expense"} of $${formatNumber(parseFormattedNumber(amount), 2)} recorded successfully`,
-    });
+    try {
+      setSubmitting(true);
+      submissionStartRef.current = Date.now();
+      
+      const result = onAddTransaction({
+        date,
+        type,
+        amount: parseFormattedNumber(amount),
+        account,
+        category: finalCategory,
+        description,
+      });
 
-    setDate(getDefaultDate());
-    setType("expense");
-    setAmount("");
-    setAccount("checking");
-    setCategory("");
-    setDescription("");
-    setCustomCategory("");
-    setIsOpen(false);
+      // If caller returned a promise, await it so we only show success on true completion
+      // Note: We don't add a timeout here because the retry logic in handleAddTransaction
+      // already handles timeouts and retries properly
+      if (result && typeof (result as Promise<void>).then === "function") {
+        await (result as Promise<void>);
+      }
+
+      // Clear submission tracking on success
+      submissionStartRef.current = null;
+
+      toast({
+        title: "Transaction Added",
+        description: `${type === "income" ? "Income" : "Expense"} of $${formatNumber(parseFormattedNumber(amount), 2)} recorded successfully`,
+      });
+
+      setDate(getDefaultDate());
+      setType("expense");
+      setAmount("");
+      setAccount("checking");
+      setCategory("");
+      setDescription("");
+      setCustomCategory("");
+      setIsOpen(false);
+    } catch (err) {
+      console.error("Failed to add transaction:", err);
+      submissionStartRef.current = null;
+      try {
+        toast({
+          title: "Failed to add transaction",
+          description: (err as any)?.message || String(err) || "Unknown error",
+          variant: "destructive",
+        });
+      } catch (e) {}
+    } finally {
+      // ensure we always clear submitting flag so UI doesn't remain stuck
+      setSubmitting(false);
+      submissionStartRef.current = null;
+    }
   };
 
   if (!isOpen) {
@@ -259,14 +315,21 @@ export default function TransactionForm({
         <div className="flex flex-col sm:flex-row gap-2 pt-2">
           <button
             type="submit"
-            disabled={disabled}
+            disabled={disabled || submitting}
             className={`flex-1 rounded-lg py-2 font-semibold transition-colors ${
-              disabled
+              disabled || submitting
                 ? "bg-gray-400 text-gray-200 cursor-not-allowed"
                 : "bg-emerald-500 text-white hover:bg-emerald-600"
             }`}
           >
-            Add Transaction
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </span>
+            ) : (
+              "Add Transaction"
+            )}
           </button>
           <button
             type="button"

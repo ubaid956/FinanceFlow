@@ -6,6 +6,16 @@ import { handleDemo } from "./routes/demo";
 export function createServer() {
   const app = express();
 
+  // Basic request logger for API endpoints
+  app.use((req, _res, next) => {
+    try {
+      console.log("API Request:", { method: req.method, url: req.originalUrl, body: req.body });
+    } catch (e) {
+      // ignore logging errors
+    }
+    next();
+  });
+
   // Middleware
   app.use(cors());
   app.use(express.json());
