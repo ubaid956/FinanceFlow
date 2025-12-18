@@ -1140,30 +1140,43 @@ export default function Index() {
   // Use server data as source of truth
   setTransactions(txData as Transaction[]);
 
-        // If we received rows but none match the user's currently selected
-        // month/year, assume the user likely wants to see their recent data
-        // and switch the UI to the month of the most recent transaction.
+        // If the page was reloaded, keep the UI on the current month even
+        // if the server returned transactions for other months. This ensures
+        // refresh always lands the user in the current month view.
         try {
-          if (Array.isArray(txData) && txData.length > 0) {
-            const received = txData as any[];
-            const filteredCount = received.filter((t) => {
-              const [dYear, dMonth] = (t.date || "").split("-");
-              return parseInt(dYear) === year && parseInt(dMonth) - 1 === month;
-            }).length;
-            if (filteredCount === 0) {
-              // Find the newest transaction date
-              const latest = received.reduce((acc, cur) => (cur.date > acc.date ? cur : acc), received[0]);
-              try {
-                const [ly, lm] = (latest.date || "").split("-");
-                const newYear = parseInt(ly);
-                const newMonth = parseInt(lm) - 1;
-                console.log("API: aligning UI month/year to latest transaction", { newYear, newMonth });
-                setYear(newYear);
-                setMonth(newMonth);
-                // Force a render so derived filters update immediately
-                try { setRenderTick((r) => r + 1); } catch (e) {}
-              } catch (e) {
-                // ignore parse errors
+          if (pageReloadedRef.current) {
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            console.log("API: page reload detected - keeping UI on current month", { currentYear, currentMonth });
+            setYear(currentYear);
+            setMonth(currentMonth);
+            try { setRenderTick((r) => r + 1); } catch (e) {}
+          } else {
+            // If we received rows but none match the user's currently selected
+            // month/year, assume the user likely wants to see their recent data
+            // and switch the UI to the month of the most recent transaction.
+            if (Array.isArray(txData) && txData.length > 0) {
+              const received = txData as any[];
+              const filteredCount = received.filter((t) => {
+                const [dYear, dMonth] = (t.date || "").split("-");
+                return parseInt(dYear) === year && parseInt(dMonth) - 1 === month;
+              }).length;
+              if (filteredCount === 0) {
+                // Find the newest transaction date
+                const latest = received.reduce((acc, cur) => (cur.date > acc.date ? cur : acc), received[0]);
+                try {
+                  const [ly, lm] = (latest.date || "").split("-");
+                  const newYear = parseInt(ly);
+                  const newMonth = parseInt(lm) - 1;
+                  console.log("API: aligning UI month/year to latest transaction", { newYear, newMonth });
+                  setYear(newYear);
+                  setMonth(newMonth);
+                  // Force a render so derived filters update immediately
+                  try { setRenderTick((r) => r + 1); } catch (e) {}
+                } catch (e) {
+                  // ignore parse errors
+                }
               }
             }
           }
@@ -1196,6 +1209,23 @@ export default function Index() {
         
         // Mark that initial data has been loaded - prevents flash of empty content
         setInitialDataLoaded(true);
+
+        // If this is the first successful load for this tab (no previous
+        // lastLoadedUserId) or the page was reloaded, prefer showing the
+        // current month after a refresh instead of aligning to the latest
+        // transaction. This avoids jumping to older months (e.g., 2022)
+        // when the user expected to see the current month after a refresh.
+        try {
+          if (!lastLoadedUserId || pageReloadedRef.current) {
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            console.log("API: initial load or reload - keeping UI on current month", { currentYear, currentMonth });
+            setYear(currentYear);
+            setMonth(currentMonth);
+            try { setRenderTick((r) => r + 1); } catch (e) {}
+          }
+        } catch (e) {}
         
         // CRITICAL: If we successfully loaded data but don't have a session in state,
         // try to get it one more time to prevent redirect to login
