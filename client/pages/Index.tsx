@@ -285,23 +285,6 @@ export default function Index() {
 
     getSession();
 
-    // If the app was redirected back to the index page after sign-in (for
-    // example OAuth redirect), attempt a forced reload of the user's data once
-    // on mount so the UI always shows fresh server data after redirect.
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        const userId = data?.session?.user?.id;
-        if (userId) {
-          console.log("API: mount - detected session, forcing data reload after redirect if needed", { userId });
-          // Force a reload even if we've previously loaded for this user.
-          await loadDataFromSupabase(userId, { force: true });
-        }
-      } catch (e) {
-        // ignore
-      }
-    })();
-
     // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (mounted) {
@@ -465,31 +448,40 @@ export default function Index() {
     };
   }, []);
 
-  // Defensive fallback: if loading gets stuck (for example after returning from a
-  // backgrounded tab) hide the overlay after a short timeout so the user can
-  // continue interacting. This avoids a permanent spinner when the network is
-  // throttled or an unexpected race occurs. We only auto-hide when a session
-  // exists (we don't hide initial unauthenticated loading).
+  // Track if loading is taking too long (for showing "taking longer" message)
+  const [loadingTakingLong, setLoadingTakingLong] = useState(false);
+  
+  // Show "taking longer than expected" message after timeout, but DON'T force initialDataLoaded
+  // The loading screen should stay until data ACTUALLY loads
   useEffect(() => {
     if (!session) return;
-    // Only start timeout if we're still waiting for initial data
-    if (initialDataLoaded && !loading) return;
+    if (initialDataLoaded) {
+      setLoadingTakingLong(false);
+      return;
+    }
     
-    const id = window.setTimeout(() => {
-      try {
-        console.warn("API: loading overlay timeout reached, hiding overlay to avoid stuck state");
+    // Show "taking longer" message after 5 seconds
+    const longId = window.setTimeout(() => {
+      if (!initialDataLoaded) {
+        console.log("API: Loading taking longer than expected");
+        setLoadingTakingLong(true);
+      }
+    }, 5000);
+    
+    // Only clear the general loading state after 30 seconds as absolute fallback
+    // but NEVER force initialDataLoaded - that should only be set when data loads
+    const fallbackId = window.setTimeout(() => {
+      if (!initialDataLoaded) {
+        console.warn("API: 30s timeout reached - clearing loading state but NOT forcing initialDataLoaded");
         setLoading(false);
-        // Also mark initial data as loaded to prevent overlay from reappearing
-        // This is a fallback - the user can still see their data even if empty
-        if (!initialDataLoaded) {
-          console.warn("API: forcing initialDataLoaded=true after timeout");
-          setInitialDataLoaded(true);
-        }
-      } catch (e) {}
-    }, 8000); // 8s - slightly longer to allow for slow networks
+      }
+    }, 30000);
 
-    return () => clearTimeout(id);
-  }, [loading, session, initialDataLoaded]);
+    return () => {
+      clearTimeout(longId);
+      clearTimeout(fallbackId);
+    };
+  }, [session, initialDataLoaded]);
 
   // Ensure that when a session becomes active (for example after logging in
   // on another tab) or when the user returns to the tab (visibilitychange)
@@ -604,41 +596,43 @@ export default function Index() {
   // Extra short-lived retry when session exists but transactions remain empty.
   // This covers cases where the initial load raced with other events (auth,
   // visibility, throttling) and the UI ends up empty until a manual refresh.
-  // We attempt a few quick retries (1s apart) and then stop to avoid spamming.
+  // We attempt a few quick retries (5s apart) and then stop to avoid spamming.
   const reloadRetryRef = useRef<number>(0);
   useEffect(() => {
     if (!session) return;
-    if (transactions.length > 0) return; // nothing to do
+    if (transactions.length > 0) return; // nothing to do, we have data
+    if (initialDataLoaded) return; // data loaded (even if empty), don't retry
     if (loadedFromSupabaseRef.current && lastLoadedUserId === session.user.id) return;
+    if (isLoadingDataRef.current) return; // don't retry while load is in progress
 
-    const maxRetries = 3;
+    const maxRetries = 2;
     let mounted = true;
 
     const tryRetry = async () => {
       if (!mounted) return;
       if (reloadRetryRef.current >= maxRetries) return;
+      if (isLoadingDataRef.current) return; // skip if load started
+      if (initialDataLoaded) return; // skip if data loaded
       reloadRetryRef.current += 1;
       try {
         console.log("API: retry loadDataFromSupabase (retry)", { attempt: reloadRetryRef.current, userId: session.user.id });
-        setLoading(true);
         await loadDataFromSupabase(session.user.id);
       } catch (e) {
         console.warn("API: retry load failed", e);
-      } finally {
-        if (mounted) setLoading(false);
       }
     };
 
+    // Start first retry after 5 seconds, second after 10 seconds
     const timers: number[] = [];
     for (let i = 1; i <= maxRetries; i++) {
-      timers.push(window.setTimeout(tryRetry, i * 1000));
+      timers.push(window.setTimeout(tryRetry, i * 5000));
     }
 
     return () => {
       mounted = false;
       timers.forEach((id) => clearTimeout(id));
     };
-  }, [session?.user?.id, transactions.length]);
+  }, [session?.user?.id, transactions.length, initialDataLoaded]);
 
   // Ensure pending saves complete before page unload
   useEffect(() => {
@@ -943,25 +937,11 @@ export default function Index() {
       return;
     }
     
-    // Prevent concurrent loads - if we're already loading, wait for it to complete
+    // Prevent concurrent loads - if we're already loading for this user, just return
+    // Don't start another load - the existing one will complete
     if (isLoadingDataRef.current && activeLoadUserIdRef.current === userId) {
-      console.log("API: loadDataFromSupabase - already loading for this user, waiting for current load to complete", { userId });
-      // Wait up to 2 seconds for the current load to complete
-      let waitAttempts = 0;
-      while (isLoadingDataRef.current && activeLoadUserIdRef.current === userId && waitAttempts < 10) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-        waitAttempts++;
-      }
-      // If we waited and data is now loaded for this user, we're done
-      if (loadedFromSupabaseRef.current && lastLoadedUserId === userId) {
-        console.log("API: loadDataFromSupabase - data loaded by concurrent call", { userId });
-        return;
-      }
-      // If still loading after wait, reset the lock and proceed (might be stuck)
-      if (isLoadingDataRef.current && activeLoadUserIdRef.current === userId) {
-        console.warn("API: loadDataFromSupabase - previous load still in progress after wait, resetting lock and proceeding", { userId });
-        isLoadingDataRef.current = false;
-      }
+      console.log("API: loadDataFromSupabase - already loading for this user, skipping duplicate load", { userId });
+      return;
     }
 
     // If we've already loaded data for this user, avoid re-loading on tab switches
@@ -1099,9 +1079,9 @@ export default function Index() {
           supabase.from("recurring_transactions").select("*").eq("user_id", userId),
         ]) as Promise<any[]>;
 
-        // Add timeout wrapper
+        // Add timeout wrapper - use longer timeout for production (Netlify can be slow)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error("Request timeout after 15 seconds")), 15000);
+          setTimeout(() => reject(new Error("Request timeout after 45 seconds")), 45000);
         });
 
         let transactionsRes: any, budgetsRes: any, recurringRes: any;
@@ -2397,7 +2377,14 @@ export default function Index() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your data...</p>
+          <p className="mt-4 text-gray-600">
+            {loadingTakingLong ? "Still loading... Please wait" : "Loading your data..."}
+          </p>
+          {loadingTakingLong && (
+            <p className="mt-2 text-sm text-gray-500">
+              This is taking longer than expected. Your data will appear shortly.
+            </p>
+          )}
         </div>
       </div>
     );
