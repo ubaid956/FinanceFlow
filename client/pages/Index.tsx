@@ -72,6 +72,8 @@ const STORAGE_WARNING_THRESHOLD = 0.9; // 90%
 export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  // Track whether initial data has been loaded - prevents flash of empty content
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<BudgetGoal[]>([]);
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
@@ -128,6 +130,7 @@ export default function Index() {
               setRecurring([]);
               loadedFromSupabaseRef.current = false;
               setLastLoadedUserId(null);
+              setInitialDataLoaded(false);
               justLoggedOutRef.current = true;
             } else if (msg.type === "update") {
               // Another tab updated data; trigger a reload from Supabase.
@@ -407,6 +410,8 @@ export default function Index() {
           setLastLoadedUserId(null);
           // No longer loaded for any user
           loadedFromSupabaseRef.current = false;
+          // Reset initial data loaded flag so next login shows loading state
+          setInitialDataLoaded(false);
           // Mark that we just logged out so next sign-in forces reload
           justLoggedOutRef.current = true;
           localStorage.removeItem(STORAGE_KEY);
@@ -454,16 +459,25 @@ export default function Index() {
   // throttled or an unexpected race occurs. We only auto-hide when a session
   // exists (we don't hide initial unauthenticated loading).
   useEffect(() => {
-    if (!loading || !session) return;
+    if (!session) return;
+    // Only start timeout if we're still waiting for initial data
+    if (initialDataLoaded && !loading) return;
+    
     const id = window.setTimeout(() => {
       try {
         console.warn("API: loading overlay timeout reached, hiding overlay to avoid stuck state");
         setLoading(false);
+        // Also mark initial data as loaded to prevent overlay from reappearing
+        // This is a fallback - the user can still see their data even if empty
+        if (!initialDataLoaded) {
+          console.warn("API: forcing initialDataLoaded=true after timeout");
+          setInitialDataLoaded(true);
+        }
       } catch (e) {}
-    }, 5000); // 5s
+    }, 8000); // 8s - slightly longer to allow for slow networks
 
     return () => clearTimeout(id);
-  }, [loading, session]);
+  }, [loading, session, initialDataLoaded]);
 
   // Ensure that when a session becomes active (for example after logging in
   // on another tab) or when the user returns to the tab (visibilitychange)
@@ -1195,6 +1209,9 @@ export default function Index() {
         
         console.log("API: loadDataFromSupabase - success", { userId, transactions: txData.length });
         
+        // Mark that initial data has been loaded - prevents flash of empty content
+        setInitialDataLoaded(true);
+        
         // CRITICAL: If we successfully loaded data but don't have a session in state,
         // try to get it one more time to prevent redirect to login
         // This can happen if getSession() timed out but Supabase client queries worked
@@ -1378,6 +1395,9 @@ export default function Index() {
                 }
               }
             }
+            
+            // Mark that initial data has been loaded - prevents flash of empty content
+            setInitialDataLoaded(true);
             
             setSyncing(false);
             isLoadingDataRef.current = false; // Reset lock before returning
@@ -2257,6 +2277,8 @@ export default function Index() {
       // Set these directly without try-catch to ensure they're always cleared
       loadedFromSupabaseRef.current = false;
       setLastLoadedUserId(null);
+      // Reset initial data loaded flag so next login shows loading state
+      setInitialDataLoaded(false);
       // Mark that we just logged out so next sign-in forces reload
       justLoggedOutRef.current = true;
 
@@ -2319,6 +2341,7 @@ export default function Index() {
       setRecurring([]);
       loadedFromSupabaseRef.current = false;
       setLastLoadedUserId(null);
+      setInitialDataLoaded(false);
       justLoggedOutRef.current = true;
       try { window.location.reload(); } catch (e) {}
       try { bcRef.current?.postMessage({ type: 'sign_out' }); } catch (e) {}
@@ -2363,15 +2386,19 @@ export default function Index() {
     }
   }
 
+  // Show loading overlay when we have a session but data hasn't loaded yet
+  // This prevents the flash of empty content on page refresh
+  const showLoadingOverlay = session && (loading || !initialDataLoaded);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* If we're loading but already have a session (e.g. returning from background),
-          show a semi-transparent overlay spinner instead of a full blank page. */}
-      {loading && session && (
+      {/* Show loading overlay when session exists but data hasn't loaded yet.
+          This prevents the flash of "0 transactions" on page refresh. */}
+      {showLoadingOverlay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm">
           <div className="text-center">
             <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading...</p>
+            <p className="mt-4 text-gray-600">Loading your data...</p>
           </div>
         </div>
       )}
