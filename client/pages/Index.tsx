@@ -103,6 +103,10 @@ export default function Index() {
   const isLoadingDataRef = useRef(false);
   // Track if we're in the process of signing in to prevent showing Auth component
   const isSigningInRef = useRef(false);
+  // Track previous session so we only auto-load when a NEW session appears
+  const prevSessionRef = useRef<Session | null>(null);
+  // Detect if the current page load was a full reload so we can load data on refresh
+  const pageReloadedRef = useRef<boolean>(false);
   // AbortController to cancel pending data loads when user logs out
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   // Track the current userId for the active load to prevent stale loads
@@ -122,6 +126,16 @@ export default function Index() {
 
   // Check session and load data from Supabase
   useEffect(() => {
+    // Detect full page reload once on mount
+    try {
+      const nav = (performance && (performance as any).getEntriesByType)
+        ? ((performance as any).getEntriesByType("navigation") || [])[0]
+        : null;
+      const navAny = nav as any;
+      pageReloadedRef.current = !!(navAny && (navAny.type === "reload" || ((performance as any).navigation && (performance as any).navigation.type === 1)));
+    } catch (e) {
+      pageReloadedRef.current = false;
+    }
     try {
       bcRef.current = new BroadcastChannel("financeflow-storage");
     } catch (err) {
@@ -307,6 +321,20 @@ export default function Index() {
           });
           
           // CRITICAL: Set session immediately - this prevents redirect to login
+          // Decide whether this SIGNED_IN represents a new login or a token refresh
+          const isNewSessionEvent = !prevSessionRef.current || prevSessionRef.current.user?.id !== newSession.user.id;
+          // If this is NOT a new session and we didn't just log out, and the page
+          // wasn't reloaded, skip the eager reload — this avoids reloads caused
+          // by token refreshes or visibility-driven SDK events.
+          if (!isNewSessionEvent && !justLoggedOutRef.current && !pageReloadedRef.current) {
+            console.log("API: auth event SIGNED_IN - non-new session/token refresh, skipping reload", { user: newSession.user.id });
+            setSession(newSession);
+            // update prevSession to current session
+            prevSessionRef.current = newSession;
+            setLoading(false);
+            return;
+          }
+
           setSession(newSession);
           // Mark that we're no longer signing in
           isSigningInRef.current = false;
@@ -339,7 +367,10 @@ export default function Index() {
           try {
             // Force reload after logout to ensure we get fresh data
             // Use a timeout wrapper to prevent hanging indefinitely
-            const loadPromise = loadDataFromSupabase(newSession.user.id, { force: wasJustLoggedOut || true });
+            // Only force reload when we actually just logged out. Previously this
+            // used `wasJustLoggedOut || true` which always evaluated to true and
+            // caused a reload on every SIGNED_IN event (even token refreshes).
+            const loadPromise = loadDataFromSupabase(newSession.user.id, { force: wasJustLoggedOut });
             const timeoutPromise = new Promise((_, reject) => {
               setTimeout(() => reject(new Error("Load timeout after 20 seconds")), 20000);
             });
@@ -477,7 +508,24 @@ export default function Index() {
   // a tab switch; we guard with loadedFromSupabaseRef and lastLoadedUserId
   // to avoid unnecessary reloads.
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      prevSessionRef.current = session;
+      return;
+    }
+
+    // Only auto-load in two cases:
+    // 1) A NEW session appeared (prevSession was null) — user just logged in
+    // 2) The page was reloaded (full refresh)
+    const isNewSession = !prevSessionRef.current && !!session;
+    const wasPageReload = pageReloadedRef.current === true;
+
+    // Avoid duplicate loads when sign-in was initiated via handleAuthSignIn
+    // (that function already triggers a load). In that case we skip here.
+    if (!isNewSession && !wasPageReload) {
+      // Nothing to do on ordinary session changes (token refresh, tab focus, etc.)
+      prevSessionRef.current = session;
+      return;
+    }
 
     let mounted = true;
 
@@ -485,23 +533,22 @@ export default function Index() {
       try {
         // Always reload if we just logged out (force fresh data after logout)
         const wasJustLoggedOut = justLoggedOutRef.current;
-        
+
         // If we've already loaded for this user and didn't just log out, skip
         if (!wasJustLoggedOut && loadedFromSupabaseRef.current && lastLoadedUserId === session.user.id && !isLoadingDataRef.current) {
           console.log("API: data already loaded for session user, skipping reload", { userId: session.user.id });
+          prevSessionRef.current = session;
+          pageReloadedRef.current = false;
           return;
         }
 
-        // Don't reset the flag yet - wait until data loads successfully
-
-        console.log("API: session present - loading data for user (session-effect)", { 
+        console.log("API: session present - loading data for user (session-effect)", {
           userId: session.user.id,
-          wasJustLoggedOut 
+          wasJustLoggedOut,
+          isNewSession,
+          wasPageReload,
         });
-        
-        // NOTE: removed visibility wait on tab switch to preserve previous
-        // behavior — do not block loading when the tab isn't visible.
-        
+
         setLoading(true);
         try {
           await loadDataFromSupabase(session.user.id, { force: wasJustLoggedOut });
@@ -509,6 +556,9 @@ export default function Index() {
           if (wasJustLoggedOut) {
             justLoggedOutRef.current = false;
           }
+          // Mark prev session so future token refreshes don't re-trigger load
+          prevSessionRef.current = session;
+          pageReloadedRef.current = false;
         } catch (e) {
           console.warn("API: session-effect loadDataFromSupabase failed", e);
           // Reset flag anyway to prevent infinite retries
@@ -524,13 +574,12 @@ export default function Index() {
       }
     };
 
-    // Try immediate load when session becomes available
-    tryLoad();
+    // Only run the load if we're not currently in the middle of a local sign-in
+    // (handleAuthSignIn will perform the eager load in that case).
+    if (!isSigningInRef.current) {
+      tryLoad();
+    }
 
-    // Also listen for visibility changes: when the tab becomes visible, attempt
-    // Do not trigger reloads on tab visibility changes — keep previous
-    // behavior where tab switching does not force a sync. Cleanup simply
-    // ensures mounted is toggled and nothing else is attached.
     return () => {
       mounted = false;
     };
