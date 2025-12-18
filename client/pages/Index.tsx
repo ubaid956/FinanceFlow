@@ -108,6 +108,18 @@ export default function Index() {
   // Track the current userId for the active load to prevent stale loads
   const activeLoadUserIdRef = useRef<string | null>(null);
 
+  // Initialize session from localStorage on mount
+  // This runs once to bootstrap the session state without calling setSession during render
+  useEffect(() => {
+    if (!session) {
+      const storedSession = getSessionFromLocalStorage();
+      if (storedSession) {
+        console.log("API: Initializing session from localStorage on mount", { userId: storedSession.user?.id });
+        setSession(storedSession);
+      }
+    }
+  }, []); // Only run once on mount
+
   // Check session and load data from Supabase
   useEffect(() => {
     try {
@@ -2348,57 +2360,61 @@ export default function Index() {
     }
   };
 
-  // Show a full-screen loading only when there's no session yet.
-  // If we are loading but already have a session (e.g. returning from a background tab),
-  // render the app UI and show a small inline overlay so the user doesn't see a blank page.
-  // CRITICAL: If we're loading or signing in, we might be in the process of signing in
-  // Don't show Auth component during loading/signing in - wait for session to be set
-  if ((loading || isSigningInRef.current) && !session) {
-    // Try localStorage as last resort before showing loading
-    const fallbackSession = getSessionFromLocalStorage();
-    if (fallbackSession) {
-      console.log("API: Found session in localStorage during render, setting it", { userId: fallbackSession.user?.id });
-      setSession(fallbackSession);
-      // Don't return here - let the component render with session
-    } else {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading...</p>
-          </div>
-        </div>
-      );
-    }
-  }
+  // Check if we have a session in localStorage (used for deciding what to render)
+  // NOTE: We don't call setSession here - that's handled by useEffects
+  const hasLocalStorageSession = !!getSessionFromLocalStorage();
 
-  // Only show Auth component if we're sure there's no session and we're not loading/signing in
-  // This prevents redirect to login during sign-in process
-  if (!session && !loading && !isSigningInRef.current) {
-    // One final check of localStorage before showing Auth
-    const finalCheck = getSessionFromLocalStorage();
-    if (finalCheck) {
-      console.log("API: Found session in localStorage before showing Auth, setting it", { userId: finalCheck.user?.id });
-      setSession(finalCheck);
-      // Don't return - let component render with session
-    } else {
+  // Show full-screen loading when:
+  // 1. We're loading/signing in and don't have a session yet (but might have one in localStorage)
+  // 2. We have a session but haven't loaded initial data yet
+  if ((loading || isSigningInRef.current) && !session) {
+    // Check localStorage - if session exists there, show loading (data will load soon)
+    // If no session in localStorage either, show Auth
+    if (!hasLocalStorageSession) {
       return <Auth onSignIn={handleAuthSignIn} />;
     }
+    // Session exists in localStorage - show loading while we wait for it to be set
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
-  // Show loading overlay when we have a session but data hasn't loaded yet
-  // This prevents the flash of empty content on page refresh
-  const showLoadingOverlay = session && (loading || !initialDataLoaded);
+  // Show Auth if we definitely don't have a session
+  if (!session && !loading && !isSigningInRef.current && !hasLocalStorageSession) {
+    return <Auth onSignIn={handleAuthSignIn} />;
+  }
+
+  // CRITICAL: Show full-screen loading until initial data is loaded
+  // This prevents the flash of "0 transactions" on page refresh
+  // Use fully opaque background so content isn't visible behind it
+  if (session && !initialDataLoaded) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading overlay for subsequent loads (e.g., returning from background tab)
+  // This is semi-transparent since we already have data to show
+  const showLoadingOverlay = session && loading && initialDataLoaded;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Show loading overlay when session exists but data hasn't loaded yet.
-          This prevents the flash of "0 transactions" on page refresh. */}
+      {/* Semi-transparent overlay for subsequent data refreshes */}
       {showLoadingOverlay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm">
           <div className="text-center">
             <div className="w-12 h-12 rounded-full border-4 border-gray-300 border-t-emerald-500 animate-spin mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading your data...</p>
+            <p className="mt-4 text-gray-600">Syncing...</p>
           </div>
         </div>
       )}
