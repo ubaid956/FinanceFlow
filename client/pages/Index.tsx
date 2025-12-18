@@ -331,21 +331,8 @@ export default function Index() {
           loadedFromSupabaseRef.current = false;
           setLastLoadedUserId(newSession.user.id);
           
-          // Wait for tab to be visible if needed (important after tab switches)
-          // But don't wait too long - max 500ms to avoid blocking
-          if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-            await new Promise<void>((resolve) => {
-              const timeout = setTimeout(() => resolve(), 500); // Reduced from 1s to 500ms
-              const onVisibilityChange = () => {
-                if (document.visibilityState === "visible") {
-                  clearTimeout(timeout);
-                  document.removeEventListener("visibilitychange", onVisibilityChange);
-                  setTimeout(resolve, 200); // Reduced delay for network stack
-                }
-              };
-              document.addEventListener("visibilitychange", onVisibilityChange);
-            });
-          }
+          // NOTE: removed visibility wait on tab switch to preserve previous
+          // behavior — do not block loading when the tab isn't visible.
           
           // Show loading UI while we fetch the user's data to avoid a flash of empty state
           setLoading(true);
@@ -512,20 +499,8 @@ export default function Index() {
           wasJustLoggedOut 
         });
         
-        // Wait for tab to be visible if needed
-        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(() => resolve(), 1000); // Max 1s wait
-            const onVisibilityChange = () => {
-              if (document.visibilityState === "visible") {
-                clearTimeout(timeout);
-                document.removeEventListener("visibilitychange", onVisibilityChange);
-                setTimeout(resolve, 300); // Small delay for network stack
-              }
-            };
-            document.addEventListener("visibilitychange", onVisibilityChange);
-          });
-        }
+        // NOTE: removed visibility wait on tab switch to preserve previous
+        // behavior — do not block loading when the tab isn't visible.
         
         setLoading(true);
         try {
@@ -553,43 +528,11 @@ export default function Index() {
     tryLoad();
 
     // Also listen for visibility changes: when the tab becomes visible, attempt
-    // a reload if we don't yet have server-sourced data for this user or if the
-    // current transactions array looks empty (covers the case where UI showed 0)
-    const onVisibility = () => {
-      try {
-        if (document.visibilityState === "visible") {
-          const wasJustLoggedOut = justLoggedOutRef.current;
-          const shouldReload = wasJustLoggedOut || 
-                               !loadedFromSupabaseRef.current || 
-                               lastLoadedUserId !== session.user.id || 
-                               transactions.length === 0;
-          if (shouldReload) {
-            console.log("API: document became visible - reloading data for session user", { 
-              userId: session.user.id,
-              wasJustLoggedOut,
-              transactionsLength: transactions.length
-            });
-            // Reset logout flag if it was set
-            if (wasJustLoggedOut) {
-              justLoggedOutRef.current = false;
-            }
-            // Fire-and-forget; the loadDataFromSupabase handles retries
-            setLoading(true);
-            loadDataFromSupabase(session.user.id, { force: wasJustLoggedOut }).finally(() => {
-              if (mounted) setLoading(false);
-            });
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibility);
-
+    // Do not trigger reloads on tab visibility changes — keep previous
+    // behavior where tab switching does not force a sync. Cleanup simply
+    // ensures mounted is toggled and nothing else is attached.
     return () => {
       mounted = false;
-      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [session?.user?.id]);
 
@@ -659,20 +602,8 @@ export default function Index() {
     isSigningInRef.current = true;
     
     try {
-      // Wait for tab to be visible if it's not (important after tab switches)
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => resolve(), 1000); // Max 1s wait
-          const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-              clearTimeout(timeout);
-              document.removeEventListener("visibilitychange", onVisibilityChange);
-              setTimeout(resolve, 300); // Small delay for network stack
-            }
-          };
-          document.addEventListener("visibilitychange", onVisibilityChange);
-        });
-      }
+      // NOTE: removed visibility wait on sign-in to avoid forcing tab-visible
+      // during login; preserve previous behavior and attempt loads immediately.
 
       let userId = userIdArg;
       let sessionData: any = null;
@@ -816,6 +747,19 @@ export default function Index() {
           setLoading(false);
         }
         isSigningInRef.current = false;
+      } finally {
+        // Ensure we always clear the signing-in/loading flags here.
+        // Previously we relied on onAuthStateChange to clear loading when a
+        // session was present, but that can race (or be throttled) after
+        // tab switches and lead to a stuck "Syncing..." overlay. Clearing
+        // the loading flag here is safe because the session has been set
+        // (or will be shortly) and data loading was attempted above.
+        try {
+          isSigningInRef.current = false;
+          setLoading(false);
+        } catch (err) {
+          // ignore
+        }
       }
     }
   };
@@ -1672,32 +1616,8 @@ export default function Index() {
       setSyncing(true);
       const userId = session.user.id;
       
-      // CRITICAL: Ensure tab is visible before making request
-      // Browsers throttle/pause requests initiated when tab is in background
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-        // Wait for tab to become visible (max 3 seconds)
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            document.removeEventListener("visibilitychange", onVisibilityChange);
-            reject(new Error("Please keep the tab visible while submitting"));
-          }, 3000);
-          
-          const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-              clearTimeout(timeout);
-              document.removeEventListener("visibilitychange", onVisibilityChange);
-              // Wait for browser network stack to initialize after tab becomes visible
-              setTimeout(resolve, 500);
-            }
-          };
-          
-          document.addEventListener("visibilitychange", onVisibilityChange);
-        });
-      } else {
-        // Tab is visible, but wait a moment to ensure browser network stack is fully ready
-        // This is especially important after tab switches - give browser time to reinitialize
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      // NOTE: removed visibility wait before submitting to preserve previous
+      // behavior — do not block or delay submits based on tab visibility.
       
       console.log("Starting Supabase insert for user:", userId);
       
@@ -1840,29 +1760,8 @@ export default function Index() {
       let deleteError: any = null;
 
       if (session?.access_token) {
-        // Ensure tab is visible before making request (browser may throttle background requests)
-        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              document.removeEventListener("visibilitychange", onVisibilityChange);
-              reject(new Error("Please keep the tab visible while deleting"));
-            }, 3000);
-
-            const onVisibilityChange = () => {
-              if (document.visibilityState === "visible") {
-                clearTimeout(timeout);
-                document.removeEventListener("visibilitychange", onVisibilityChange);
-                // Give browser a moment to resume network stack
-                setTimeout(() => resolve(), 250);
-              }
-            };
-
-            document.addEventListener("visibilitychange", onVisibilityChange);
-          });
-        } else {
-          // small delay to let network stabilize after tab switch
-          await new Promise((r) => setTimeout(r, 250));
-        }
+        // NOTE: removed visibility check/delay before delete to preserve
+        // previous behavior — do not block delete on tab visibility.
 
         try {
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
